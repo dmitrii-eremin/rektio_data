@@ -108,7 +108,8 @@ let getAccessToken = async() => {
 };
 
 let getData = async(accessToken, word) => {
-  const response = await fetch("https://www.kielitoimistonsanakirja.fi/api/search/api/v1/search?keyword=" + word, {
+  const url = "https://www.kielitoimistonsanakirja.fi/api/search/api/v1/search?keyword=" + encodeURI(word);
+  const response = await fetch(url, {
       method: "GET",
       headers: {
         "X-Authorization": "Bearer " + accessToken,
@@ -134,16 +135,22 @@ let getData = async(accessToken, word) => {
     return { good: true, content: jsonData };
 };
 
-export default {
-  async fetchDemo(request, env, ctx) {
-    const accessToken = await getAccessToken();
-    const data = await getData(accessToken, "tulla");
-    const objects = parseObject(data);
-    const strings = objects.map(convertObject);
-    console.log("Data = ", strings[0]);
-    return new Response(strings[0]);
-  },
+function splitter(str, l){
+  var strs = [];
+  while(str.length > l){
+      var pos = str.substring(0, l).lastIndexOf(' ');
+      pos = pos <= 0 ? l : pos;
+      strs.push(str.substring(0, pos));
+      var i = str.indexOf(' ', pos)+1;
+      if(i < pos || i > pos+l)
+          i = pos;
+      str = str.substring(i);
+  }
+  strs.push(str);
+  return strs;
+}
 
+export default {
   async fetch(request, env, ctx) {
       if(request.method === "POST"){
           const payload = await request.json();
@@ -154,7 +161,6 @@ export default {
             try {
             
               const accessToken = await getAccessToken();
-
               const data = await getData(accessToken, word);
               if (!data.good) {
                 await this.sendMessage(env.API_KEY, chatId, data.content);
@@ -164,7 +170,10 @@ export default {
                 const strings = objects.map(convertObject);
 
                 for (var i = 0; i < Math.min(10, strings.length); i++) {
-                  await this.sendMessage(env.API_KEY, chatId, strings[i]);
+                  const differentMessages = splitter(strings[i], 4000);
+                  for (var j = 0; j < differentMessages.length; j++) {
+                    await this.sendMessage(env.API_KEY, chatId, differentMessages[j]);
+                  }
                 }
               }
 
@@ -181,5 +190,11 @@ export default {
   async sendMessage(apiKey, chatId, text){
     const url = `https://api.telegram.org/bot${apiKey}/sendMessage?chat_id=${chatId}&text=${text}`;
     const data = await fetch(url).then(resp => resp.json());
+    if (!data.ok) {
+      const newText = `Не удалось отправить запрос: ${JSON.stringify(data, null, 2)}`;
+      console.log("ERROR: ", newText, data);
+      const newUrl = `https://api.telegram.org/bot${apiKey}/sendMessage?chat_id=${chatId}&text=${newText}`;
+      await fetch(newUrl).then(resp => resp.json());
+    }
 }
 };
